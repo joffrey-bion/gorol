@@ -1,0 +1,26 @@
+[Account]
+# credentials for connection
+login=default
+password=default
+
+[Filter]
+# attack only players within the given bounds
+minRank=1600
+maxRank=6000
+# attack only player with more gold than specified
+goldThreshold=430000
+
+[AttackParams]
+# maximum number of attacks
+maxTurns=100
+# store gold into chest every N attacks
+storingPeriod=2
+# repair weapons every N attacks
+repairingPeriod=5
+
+[SessionParams]
+# number of attack sessions to perform
+nbOfAttacks=4
+# duration in hours to wait between each attack session
+hoursBetweenAttacks=2 
+
