@@ -72,8 +72,9 @@ func UpdateState(state *model.AccountState, respReader io.Reader) {
 }
 
 func findNumValueInImgUrl(node *html.Node, attrKey, attrValuePart string) int {
-	ch := gosoup.GetChildrenByAttributeValueContaining(node, attrKey, attrValuePart)
+	ch, exit := gosoup.GetChildrenByAttributeValueContaining(node, attrKey, attrValuePart)
 	attrs := (<-ch).FirstChild.Attr
+	exit <- true
 	imgSrc := ""
 	for _, a := range attrs {
 		if a.Key == "src" {
