@@ -2,10 +2,11 @@ package parser
 
 import (
 	"code.google.com/p/go-charset/charset"
+	_ "code.google.com/p/go-charset/data"
+//	"golang.org/x/net/html/charset"
 	"errors"
 	"github.com/joffrey-bion/gosoup"
 	"github.com/joffrey-bion/gorol/model"
-	"golang.org/x/net/html"
 	"io"
 	"io/ioutil"
 	"log"
@@ -19,30 +20,28 @@ var (
 	logger *log.Logger = log.New(os.Stderr, "parser: ", 0)
 )
 
-func getCharset(resp *http.Response) string {
-	if len(resp.TransferEncoding) > 0 {
-		return resp.TransferEncoding[0]
-	}
-	doc, err := html.Parse(resp.Body)
-	if err != nil {
-		logger.Println("error parsing the response as HTML document")
-		return ""
-	}
-	return gosoup.GetDocCharset(doc)
-}
-
 func readAsString(resp *http.Response) (string, error) {
 	defer resp.Body.Close()
-
-	reader, err := charset.NewReader(getCharset(resp), resp.Body)
+	doc, err := gosoup.Parse(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	cset, err := gosoup.GetDocCharset(doc)
+	//contentType, err := gosoup.GetDocContentType(doc)
 	if err != nil {
 		logger.Println(err)
-		return "", errors.New("error reading the response with the appropriate charset")
+		return "", errors.New("readAsString: error reading the charset")
+	}
+	reader, err := charset.NewReader(cset, resp.Body)
+	//reader, err := charset.NewReader(resp.Body, contentType)
+	if err != nil {
+		logger.Println(err)
+		return "", errors.New("readAsString: error reading the response with the appropriate charset")
 	}
 	body, err := ioutil.ReadAll(reader)
 	if err != nil {
 		logger.Println(err)
-		return "", errors.New("error reading the response")
+		return "", errors.New("readAsString: error reading the response:" + err.Error())
 	}
 
 	return string(body), nil
@@ -54,13 +53,13 @@ func Contains(resp *http.Response, s string) bool {
 		logger.Println(err)
 		return false
 	}
-	logger.Println(body)
+	logger.Println("Contains: " + body)
 	return strings.Contains(body, s)
 }
 
 // Updates the specified account state based on the top elements of the specified page.
 func UpdateState(state *model.AccountState, respReader io.Reader) {
-	doc, err := html.Parse(respReader)
+	doc, err := gosoup.Parse(respReader)
 	if err != nil {
 		return
 	}
@@ -71,9 +70,9 @@ func UpdateState(state *model.AccountState, respReader io.Reader) {
 	state.Adventurins = findNumValueInImgUrl(doc, "href", "main/aventurines_detail")
 }
 
-func findNumValueInImgUrl(node *html.Node, attrKey, attrValuePart string) int {
-	ch, exit := gosoup.GetChildrenByAttributeValueContaining(node, attrKey, attrValuePart)
-	attrs := (<-ch).FirstChild.Attr
+func findNumValueInImgUrl(node *gosoup.Node, attrKey, attrValuePart string) int {
+	ch, exit := node.ChildrenByAttrValueContaining(attrKey, attrValuePart)
+	attrs := (<-ch).FirstChild.Attrs
 	exit <- true
 	imgSrc := ""
 	for _, a := range attrs {
