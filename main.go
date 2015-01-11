@@ -6,7 +6,6 @@ import (
 	"github.com/joffrey-bion/gorol/bot"
 	"github.com/joffrey-bion/gorol/config"
 	"os"
-	"time"
 )
 
 const (
@@ -29,6 +28,4 @@ func main() {
 	fmt.Println(conf)
 
 	bot.Run(conf)
-
-	time.Sleep(3 * time.Second)
 }

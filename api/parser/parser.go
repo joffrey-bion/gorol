@@ -3,10 +3,10 @@ package parser
 import (
 	"code.google.com/p/go-charset/charset"
 	_ "code.google.com/p/go-charset/data"
-//	"golang.org/x/net/html/charset"
+	//	"golang.org/x/net/html/charset"
 	"errors"
-	"github.com/joffrey-bion/gosoup"
 	"github.com/joffrey-bion/gorol/model"
+	"github.com/joffrey-bion/gosoup"
 	"io"
 	"io/ioutil"
 	"log"
@@ -32,8 +32,15 @@ func readAsString(resp *http.Response) (string, error) {
 		logger.Println(err)
 		return "", errors.New("readAsString: error reading the charset")
 	}
-	reader, err := charset.NewReader(cset, resp.Body)
-	//reader, err := charset.NewReader(resp.Body, contentType)
+	normalizedCharset := charset.NormalizedName(cset)
+	logger.Printf("readAsString: charset=%q normalized=%q", cset, normalizedCharset)
+	preader, pwriter := io.Pipe()
+	defer preader.Close()
+	go func() {
+		gosoup.Render(pwriter, doc)
+		pwriter.Close()
+	}()
+	reader, err := charset.NewReader(cset, preader)
 	if err != nil {
 		logger.Println(err)
 		return "", errors.New("readAsString: error reading the response with the appropriate charset")
@@ -53,7 +60,6 @@ func Contains(resp *http.Response, s string) bool {
 		logger.Println(err)
 		return false
 	}
-	logger.Println("Contains: " + body)
 	return strings.Contains(body, s)
 }
 
@@ -71,9 +77,7 @@ func UpdateState(state *model.AccountState, respReader io.Reader) {
 }
 
 func findNumValueInImgUrl(node *gosoup.Node, attrKey, attrValuePart string) int {
-	ch, exit := node.ChildrenByAttrValueContaining(attrKey, attrValuePart)
-	attrs := (<-ch).FirstChild.Attrs
-	exit <- true
+	attrs := node.ChildrenByAttrValueContaining(attrKey, attrValuePart).First().Attrs
 	imgSrc := ""
 	for _, a := range attrs {
 		if a.Key == "src" {
