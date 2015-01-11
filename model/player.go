@@ -14,7 +14,7 @@ const (
 	HEALERS
 )
 
-func getArmy(shortName string) Army {
+func GetArmy(shortName string) Army {
 	switch (shortName) {
 	case "Chev.", "Guer.":
 		return WARRIORS
@@ -43,7 +43,7 @@ const (
 	DEMONIAQUE
 )
 
-func getAlignment(shortName string) Alignment {
+func GetAlignment(shortName string) Alignment {
 	switch (shortName) {
 	case "Sai.":
 		return SAINT
