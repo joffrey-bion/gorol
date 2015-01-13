@@ -2,6 +2,7 @@ package ocr
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -39,7 +40,11 @@ func ReadValue(img *image.Image) (int, error) {
 	digits := getDigitsImages(img)
 	var buffer bytes.Buffer
 	for _, digit := range digits {
-		buffer.WriteString(getDigit(digit))
+		digit, err := getDigit(digit)
+		if err != nil {
+			return 0, err
+		}
+		buffer.WriteString(digit)
 	}
 	return strconv.Atoi(buffer.String())
 }
@@ -85,7 +90,7 @@ func getDigitsImages(img *image.Image) []*image.Image {
 	digitsBounds := getDigitsBounds(img)
 	digitsImages := []*image.Image{}
 	for _, bounds := range digitsBounds {
-		digitImg := (*img).(*image.RGBA).SubImage(image.Rect(bounds[0], bounds[1], 0, (*img).Bounds().Max.Y))
+		digitImg := (*img).(*image.Paletted).SubImage(image.Rect(bounds[0], 0, bounds[1]+1, (*img).Bounds().Max.Y))
 		digitsImages = append(digitsImages, &digitImg)
 	}
 	return digitsImages
@@ -107,10 +112,10 @@ func areSimilarImages(recoDigit, refDigit *image.Image) bool {
 		return false
 	}
 	// check pixels
-	for i := (*recoDigit).Bounds().Min.X; i < (*recoDigit).Bounds().Max.X; i++ {
-		for j := 0; j < (*recoDigit).Bounds().Max.Y; j++ {
-			_, _, _, recoPixelAlpha := (*recoDigit).At(i, j).RGBA()
-			_, _, _, refPixelAlpha := (*recoDigit).At(i, j).RGBA()
+	for i := 0; i < width(recoDigit); i++ {
+		for j := 0; j < height(recoDigit); j++ {
+			_, _, _, recoPixelAlpha := (*recoDigit).At((*recoDigit).Bounds().Min.X+i, (*recoDigit).Bounds().Min.Y+j).RGBA()
+			_, _, _, refPixelAlpha := (*refDigit).At((*refDigit).Bounds().Min.X+i, (*refDigit).Bounds().Min.Y+j).RGBA()
 			if recoPixelAlpha != refPixelAlpha {
 				return false
 			}
@@ -119,14 +124,41 @@ func areSimilarImages(recoDigit, refDigit *image.Image) bool {
 	return true
 }
 
-func getDigit(digitImg *image.Image) string {
-	for i := 0; i < len(DIGITS); i++ {
-		if areSimilarImages(digitImg, DIGITS[i]) {
-			return strconv.Itoa(i)
+func getDigit(digitImg *image.Image) (string, error) {
+	for i, img := range DIGITS {
+		if areSimilarImages(digitImg, img) {
+			return strconv.Itoa(i), nil
 		}
 	}
 	if areSimilarImages(digitImg, DOT) {
-		return ""
+		return "", nil
 	}
-	return ""
+	fmt.Println("cannot recognize this image:")
+	printAsciiImage(digitImg)
+	return "", fmt.Errorf("unrecognized digit - image bounds: %v", (*digitImg).Bounds())
+}
+
+// printAsciiImage prints the image in black and white, respecting the alpha with
+// shaded block characters. It is intended for debugging purposes mostly.
+func printAsciiImage(img *image.Image) {
+	for j := (*img).Bounds().Min.Y; j < (*img).Bounds().Max.Y; j++ {
+		for i := (*img).Bounds().Min.X; i < (*img).Bounds().Max.X; i++ {
+			max := uint32(0xFFFF)
+			r, g, b, alpha := (*img).At(i, j).RGBA()
+			grey := (r + g + b) / 3
+			intensity := (max - grey) * alpha / max
+			if intensity < max*5/100 {
+				fmt.Print(" ")
+			} else if intensity < max*35/100 {
+				fmt.Print("░")
+			} else if intensity < max*65/100 {
+				fmt.Print("▒")
+			} else if intensity < max*95/100 {
+				fmt.Print("▓")
+			} else {
+				fmt.Print("█")
+			}
+		}
+		fmt.Println()
+	}
 }
