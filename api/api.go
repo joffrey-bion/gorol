@@ -2,7 +2,7 @@ package api
 
 import (
 	"errors"
-	"github.com/joffrey-bion/gorol/api/parser"
+	"fmt"
 	"github.com/joffrey-bion/gorol/model"
 	_ "io/ioutil"
 	"log"
@@ -10,11 +10,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"time"
 )
 
 const (
-	URL_INDEX string = "http://www.riseoflords.com/index.php"
-	URL_GAME  string = "http://www.riseoflords.com/jeu.php"
+	BASE_URL string = "http://www.riseoflords.com"
+	URL_INDEX string = BASE_URL + "/index.php"
+	URL_GAME  string = BASE_URL + "/jeu.php"
 
 	PAGE_LOGIN        string = "verifpass"
 	PAGE_LOGOUT       string = "logout"
@@ -31,8 +33,12 @@ const (
 
 var (
 	state  model.AccountState
-	logger *log.Logger = log.New(os.Stderr, "[API] ", 0)
+	logger *log.Logger = log.New(os.Stderr, "api: ", 0)
 )
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
 
 func GetCurrentState() model.AccountState {
 	return state
@@ -42,8 +48,8 @@ func randomCoord(min int, max int) string {
 	return string(rand.Intn(max-min+1) + min)
 }
 
-func gamePageUrl(page string) string {
-	return pageUrl(URL_GAME, page)
+func gamePageUrl(page string, query url.Values) string {
+	return pageUrl(URL_GAME, page) + "+" + query.Encode()
 }
 
 func pageUrl(base string, page string) string {
@@ -61,7 +67,11 @@ func Login(username string, password string) error {
 	if err != nil {
 		return err
 	}
-	if parser.Contains(resp, "Identification réussie!") {
+	respBody, err := String(resp)
+	if err != nil {
+		return err
+	}
+	if Contains(respBody, "Identification réussie!") {
 		return nil
 	}
 	return errors.New("something went wrong while logging in")
@@ -74,28 +84,39 @@ func Logout() error {
 	if err != nil {
 		return err
 	}
-	if parser.Contains(resp, "Déjà inscrit? Connectez-vous") {
+	respBody, err := String(resp)
+	if err != nil {
+		return err
+	}
+	if Contains(respBody, "Déjà inscrit? Connectez-vous") {
 		return nil
 	}
 	return errors.New("something went wrong while logging out")
 }
 
 // Returns a list of 99 users, starting at the specified rank.
-//func ListPlayers( startRank int) []Player {
-//	query := url.Values{}
-//	query.Add("Debut", string(startRank + 1))
-//    if (rand.Booln) {
-//        query.Add("x", randomCoord(5, 35))
-//        query.Add("y", randomCoord(5, 25))
-//    }
-//    resp, err := http.Get(gamePageUrl(PAGE_USERS_LIST) + query.Encode())
-//    if (Contains(resp, err, "Recherche pseudo:")) {
-//        Parser.updateState(state, response)
-//        return Parser.parsePlayerList(response)
-//    } else {
-//        return new ArrayList<>()
-//    }
-//}
+func ListPlayers(startRank int) ([]model.Player, error) {
+	query := url.Values{}
+	query.Add("Debut", string(startRank + 1))
+    if (rand.Intn(5) == 0) {
+        query.Add("x", randomCoord(5, 35))
+        query.Add("y", randomCoord(5, 25))
+    }
+    resp, err := http.Get(gamePageUrl(PAGE_USERS_LIST, query))
+    if (err != nil) {
+    	return nil, err
+    }
+	respBody, err := String(resp)
+	if err != nil {
+		return nil, err
+	}
+    if (Contains(respBody, "Recherche pseudo:")) {
+        UpdateState(&state, respBody)
+        return ParsePlayerList(respBody)
+    } else {
+        return nil, errors.New(fmt.Sprintf("ListPlayers(%d): the page does not seem right", startRank))
+    }
+}
 
 //    /**
 //     * Displays the specified player's detail page. Used to fake a visit on the user detail page
