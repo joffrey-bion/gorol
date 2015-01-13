@@ -1,7 +1,6 @@
 package api
 
 import (
-	"errors"
 	"fmt"
 	"github.com/joffrey-bion/gorol/model"
 	_ "io/ioutil"
@@ -74,7 +73,7 @@ func Login(username string, password string) error {
 	if Contains(respBody, "Identification réussie!") {
 		return nil
 	}
-	return errors.New("something went wrong while logging in")
+	return fmt.Errorf("something went wrong while logging in")
 }
 
 // Logout logs the current user out.
@@ -91,7 +90,7 @@ func Logout() error {
 	if Contains(respBody, "Déjà inscrit? Connectez-vous") {
 		return nil
 	}
-	return errors.New("something went wrong while logging out")
+	return fmt.Errorf("something went wrong while logging out")
 }
 
 // Returns a list of 99 users, starting at the specified rank.
@@ -114,7 +113,7 @@ func ListPlayers(startRank int) ([]model.Player, error) {
         UpdateState(&state, respBody)
         return ParsePlayerList(respBody)
     } else {
-        return nil, errors.New(fmt.Sprintf("ListPlayers(%d): the page does not seem right", startRank))
+        return nil, fmt.Errorf("ListPlayers(%d): the page does not seem right", startRank)
     }
 }
 
