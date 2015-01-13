@@ -46,6 +46,5 @@ func loadPNG(b64 string) *image.Image {
 	if err != nil {
 		panic("error loading embedded reference images")
 	}
-	printAsciiImage(&img)
 	return &img
 }
