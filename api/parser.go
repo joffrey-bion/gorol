@@ -3,8 +3,6 @@ package api
 import (
 	"code.google.com/p/go-charset/charset"
 	_ "code.google.com/p/go-charset/data"
-	//	"golang.org/x/net/html/charset"
-	"errors"
 	"fmt"
 	"github.com/joffrey-bion/gorol/api/ocr"
 	"github.com/joffrey-bion/gorol/model"
@@ -31,13 +29,13 @@ func String(resp *http.Response) (string, error) {
 	doc, err := gosoup.Parse(resp.Body)
 	if err != nil {
 		logger.Println(err)
-		return "", errors.New("String: error reading the response:" + err.Error())
+		return "", fmt.Errorf("String: error reading the response as HTML: %v", err)
 	}
 	// get the charset from the incorrect html (hopefully not that incorrect)
 	cset, err := gosoup.GetDocCharset(doc)
 	if err != nil {
 		logger.Println(err)
-		return "", errors.New("String: error getting the charset" + err.Error())
+		return "", fmt.Errorf("String: error getting the charset: %v", err)
 	}
 	// pipe to re-read the DOM tree
 	preader, pwriter := io.Pipe()
@@ -51,13 +49,13 @@ func String(resp *http.Response) (string, error) {
 	reader, err := charset.NewReader(cset, preader)
 	if err != nil {
 		logger.Println(err)
-		return "", errors.New("String: error reading the response with the appropriate charset")
+		return "", fmt.Errorf("String: error reading the response with the appropriate charset")
 	}
 	// read the UTF-8 data as a String
 	body, err := ioutil.ReadAll(reader)
 	if err != nil {
 		logger.Println(err)
-		return "", errors.New("String: error reading the response:" + err.Error())
+		return "", fmt.Errorf("String: error reading the response: %v", err)
 	}
 
 	return string(body), nil
@@ -102,46 +100,67 @@ func findNumValueInImgUrl(node *gosoup.Node, attrKey, attrValuePart string) int 
 }
 
 // Returns the list of players contained in the specified page.
-func ParsePlayerList(playerListPageResponse string) ([]model.Player, error) {
+func ParsePlayerList(playerListPageResponse string) ([]*model.Player, []error) {
+	var players []*model.Player
+	var errors []error
 	doc, err := gosoup.Parse(strings.NewReader(playerListPageResponse))
 	if err != nil {
-		return nil, err
+		return players, append(errors, err)
 	}
 	body := doc.DescendantsByTag("body").First()
 	elts := body.DescendantsByAttrValueContaining("href", "main/fiche&voirpseudo=").All()
-	var list []model.Player
 	for _, elt := range elts {
 		usernameCell := elt.Parent
 		assertIsTag(usernameCell, "td")
 		userRow := usernameCell.Parent
 		assertIsTag(userRow, "tr")
-		list = append(list, parsePlayer(userRow))
+		player, err := parsePlayer(userRow)
+		if err != nil {
+			errors = append(errors, err)
+		} else {
+			players = append(players, player)
+		}
 	}
-	return list, nil
+	return players, errors
 }
 
 // Creates a new player from the cells in the specified {@code <tr>} element.
-func parsePlayer(playerRow *gosoup.Node) model.Player {
+func parsePlayer(playerRow *gosoup.Node) (*model.Player, error) {
 	assertIsTag(playerRow, "tr")
 	fields := playerRow.ChildrenByTag("td").All()
 	player := new(model.Player)
 
-	// rank
-	rankElt := fields[0].Children().First()
-	player.Rank = getAsInt(rankElt)
-
 	// name
 	nameLink := fields[2].Children().First()
 	player.Name = nameLink.Children().First().Data
+	if player.Name == "" {
+		player.Name = "player"
+	}
+
+	// rank
+	rankElt := fields[0].Children().First()
+	val, err := getAsInt(rankElt)
+	if err != nil {
+		return nil, fmt.Errorf("cannot parse %s's rank: %v", player.Name, err)
+	}
+	player.Rank = val
 
 	// gold
 	goldElt := fields[3].Children().First()
 	if goldElt.Type == gosoup.TextNode {
 		// gold amount is textual
-		player.Gold = getAsInt(goldElt)
+		val, err := getAsInt(goldElt)
+		if err != nil {
+			return nil, fmt.Errorf("cannot parse %s's gold: %v", player.Name, err)
+		}
+		player.Gold = val
 	} else {
 		// gold amount is an image
-		player.Gold = getGoldFromImgElement(goldElt)
+		val, err := getGoldFromImgElement(goldElt)
+		if err != nil {
+			return nil, fmt.Errorf("OCR failed on %s's gold: %v", player.Name, err)
+		}
+		player.Gold = val
 	}
 
 	// army
@@ -154,83 +173,68 @@ func parsePlayer(playerRow *gosoup.Node) model.Player {
 	alignment := alignmentElt.Children().First().Data
 	player.Alignment = model.GetAlignment(alignment)
 
-	return *player
+	return player, nil
 }
 
-func getAsInt(n *gosoup.Node) int {
+func getAsInt(n *gosoup.Node) (int, error) {
 	numberStr := strings.Replace(n.Data, ".", "", -1)
 	value, err := strconv.Atoi(numberStr)
 	if err != nil {
-		panic(fmt.Sprintf("cannot parse %q as an int", n.Data))
+		return value, fmt.Errorf("cannot parse %q as an int", n.Data)
 	}
-	return value
+	return value, nil
 }
 
-//    /**
-//     * Gets the amount of stolen golden from the attack report.
-//     *
-//     * @param attackReportResponse
-//     *            the response containing the attack report.
-//     * @return the amount of stolen gold, or -1 if the report couldn't be read properly
-//     */
-//    public static int parseGoldStolen(String attackReportResponse) {
-//        Element body = Jsoup.parse(attackReportResponse).body()
-//        Elements elts = body.getElementsByAttributeValue("class", "combat_gagne")
-//        if (elts.size() == 0) {
-//            return -1;
-//        }
-//        Element divVictory = elts.get(0).parent().parent()
-//        return getTextAsNumber(divVictory.getElementsByTag("b").get(0))
-//    }
-//
-//    /**
-//     * Gets and parses the text contained in the spacified {@link Element}.
-//     *
-//     * @param numberElement
-//     *            an element containing a text representing an integer, with possible dots as
-//     *            thousand separator.
-//     * @return the parsed number
-//     */
-//    private static int getTextAsNumber(Element numberElement) {
-//        String number = numberElement.text().trim()
-//        return Integer.valueOf(number.replace(".", ""))
-//    }
-//
-//    /**
-//     * Parses the weapons page response to return the current state of the weapons.
-//     *
-//     * @param weaponsPageResponse
-//     *            weapons page response
-//     * @return the current percentage of wornness of the weapons
-//     */
-//    public static int parseWeaponsWornness(String weaponsPageResponse) {
-//        Element body = Jsoup.parse(weaponsPageResponse).body()
-//        Elements elts = body.getElementsByAttributeValueContaining("title", "Armes endommagées")
-//        Element input = elts.get(0)
-//        String value = input.text().trim()
-//        if (value.endsWith("%")) {
-//            return Integer.valueOf(value.substring(0, value.length() - 1))
-//        } else {
-//            return -1
-//        }
-//    }
-//
-//    /**
-//     * Parses the amount of gold on the specified player page.
-//     *
-//     * @param playerPageResponse
-//     *            the details page of a player
-//     * @return the amount of gold parsed, or -1 if it couldn't be parsed
-//     */
-//    public static int parsePlayerGold(String playerPageResponse) {
-//        Element body = Jsoup.parse(playerPageResponse).body()
-//        Elements elts = body.getElementsByAttributeValueContaining("src", "aff_montant")
-//        Element img = elts.get(0)
-//        return getGoldFromImgElement(img)
-//    }
+// Gets the amount of stolen golden from the attack report.
+func ParseGoldStolen(attackReportResponse string) (int, error) {
+	doc, err := gosoup.Parse(strings.NewReader(attackReportResponse))
+	if err != nil {
+		return -1, err
+	}
+	body := doc.DescendantsByTag("body").First()
+	elts := body.DescendantsByAttrValueContaining("class", "combat_gagne").All()
+	if len(elts) == 0 {
+		elts := body.DescendantsByAttrValueContaining("class", "combat_perdu").All()
+		if len(elts) > 0 {
+			return 0, nil // battle lost
+		} else {
+			return -1, fmt.Errorf("the page does not seem right: battle neither lost nor won")
+		}
+	}
+	divVictory := elts[0].Parent.Parent
+	return getAsInt(divVictory.DescendantsByTag("b").First().Children().First())
+}
+
+// ParseWeaponsWornness parses the weapons page response and returns the percentage
+// of wornness of the weapons.
+func ParseWeaponsWornness(weaponsPageResponse string) (int, error) {
+	doc, err := gosoup.Parse(strings.NewReader(weaponsPageResponse))
+	if err != nil {
+		return -1, err
+	}
+	body := doc.DescendantsByTag("body").First()
+	input := body.DescendantsByAttrValueContaining("title", "Armes endommagées").First()
+	value := input.Children().First().Data
+	if strings.HasSuffix(value, "%") {
+		return strconv.Atoi(strings.TrimSuffix(value, "%"))
+	} else {
+		return -1, fmt.Errorf("the page does not seem right: missing %")
+	}
+}
+
+// ParsePlayerGold parses the amount of gold on the specified player page.
+func ParsePlayerGold(playerPageResponse string) (int, error) {
+	doc, err := gosoup.Parse(strings.NewReader(playerPageResponse))
+	if err != nil {
+		return -1, err
+	}
+	body := doc.DescendantsByTag("body").First()
+	img := body.DescendantsByAttrValueContaining("src", "aff_montant").First()
+	return getGoldFromImgElement(img)
+}
 
 // Uses an OCR to recognize a number in the specified {@code <img>} element.
-func getGoldFromImgElement(goldImageElement *gosoup.Node) int {
+func getGoldFromImgElement(goldImageElement *gosoup.Node) (int, error) {
 	assertIsTag(goldImageElement, "img")
 	goldImgUrl := goldImageElement.Attr("src")
 	if len(goldImgUrl) == 0 {
@@ -238,8 +242,7 @@ func getGoldFromImgElement(goldImageElement *gosoup.Node) int {
 	}
 	img, err := ocr.GetImage(BASE_URL + goldImgUrl)
 	if err != nil {
-		return 0
+		return -1, err
 	}
-	val, _ := ocr.ReadValue(&img)
-	return val
+	return ocr.ReadValue(&img)
 }
