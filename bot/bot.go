@@ -11,6 +11,15 @@ func Run(conf config.Config) error {
 	if err != nil {
 		return err
 	}
+	players, errs := api.ListPlayers(1800)
+	if errs != nil {
+		for _, e := range errs {
+			log.E(e);
+		}
+	}
+	for _, p := range players {
+		log.I("player: ", p)
+	}
 	return nil // no error
 }
 

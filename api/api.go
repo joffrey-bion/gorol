@@ -2,18 +2,17 @@ package api
 
 import (
 	"fmt"
+	"github.com/joffrey-bion/gorol/api/net"
+	"github.com/joffrey-bion/gorol/api/parser"
 	"github.com/joffrey-bion/gorol/model"
-	_ "io/ioutil"
-	"log"
 	"math/rand"
-	"net/http"
 	"net/url"
-	"os"
+	"strconv"
 	"time"
 )
 
 const (
-	BASE_URL string = "http://www.riseoflords.com"
+	BASE_URL  string = "http://www.riseoflords.com"
 	URL_INDEX string = BASE_URL + "/index.php"
 	URL_GAME  string = BASE_URL + "/jeu.php"
 
@@ -31,12 +30,12 @@ const (
 )
 
 var (
-	state  model.AccountState
-	logger *log.Logger = log.New(os.Stderr, "api: ", 0)
+	state model.AccountState
 )
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
+	parser.SetBaseURL(BASE_URL)
 }
 
 func GetCurrentState() model.AccountState {
@@ -44,15 +43,7 @@ func GetCurrentState() model.AccountState {
 }
 
 func randomCoord(min int, max int) string {
-	return string(rand.Intn(max-min+1) + min)
-}
-
-func gamePageUrl(page string, query url.Values) string {
-	return pageUrl(URL_GAME, page) + "+" + query.Encode()
-}
-
-func pageUrl(base string, page string) string {
-	return base + "?p=" + page
+	return strconv.Itoa(rand.Intn(max-min+1) + min)
 }
 
 // Login performs the login request with the specified credentials.
@@ -62,15 +53,11 @@ func Login(username string, password string) error {
 	form := url.Values{}
 	form.Add("LogPseudo", username)
 	form.Add("LogPassword", password)
-	resp, err := http.PostForm(pageUrl(URL_INDEX, PAGE_LOGIN), form)
+	respBody, err := net.Post(URL_INDEX, PAGE_LOGIN, form)
 	if err != nil {
 		return err
 	}
-	respBody, err := String(resp)
-	if err != nil {
-		return err
-	}
-	if Contains(respBody, "Identification réussie!") {
+	if parser.Contains(respBody, "Identification réussie!") {
 		return nil
 	}
 	return fmt.Errorf("something went wrong while logging in")
@@ -79,131 +66,117 @@ func Login(username string, password string) error {
 // Logout logs the current user out.
 // Returns true if the request succeeded, false otherwise
 func Logout() error {
-	resp, err := http.Get(pageUrl(URL_INDEX, PAGE_LOGOUT))
+	respBody, err := net.Get(URL_INDEX, PAGE_LOGOUT, nil)
 	if err != nil {
 		return err
 	}
-	respBody, err := String(resp)
-	if err != nil {
-		return err
-	}
-	if Contains(respBody, "Déjà inscrit? Connectez-vous") {
+	if parser.Contains(respBody, "Déjà inscrit? Connectez-vous") {
 		return nil
 	}
 	return fmt.Errorf("something went wrong while logging out")
 }
 
 // Returns a list of 99 users, starting at the specified rank.
-func ListPlayers(startRank int) ([]model.Player, error) {
+func ListPlayers(startRank int) ([]*model.Player, []error) {
 	query := url.Values{}
-	query.Add("Debut", string(startRank + 1))
-    if (rand.Intn(5) == 0) {
-        query.Add("x", randomCoord(5, 35))
-        query.Add("y", randomCoord(5, 25))
-    }
-    resp, err := http.Get(gamePageUrl(PAGE_USERS_LIST, query))
-    if (err != nil) {
-    	return nil, err
-    }
-	respBody, err := String(resp)
-	if err != nil {
-		return nil, err
+	query.Add("Debut", strconv.Itoa(startRank+1))
+	if rand.Intn(5) == 0 {
+		query.Add("x", randomCoord(5, 35))
+		query.Add("y", randomCoord(5, 25))
 	}
-    if (Contains(respBody, "Recherche pseudo:")) {
-        UpdateState(&state, respBody)
-        return ParsePlayerList(respBody)
-    } else {
-        return nil, fmt.Errorf("ListPlayers(%d): the page does not seem right", startRank)
-    }
+	respBody, err := net.Get(URL_GAME, PAGE_USERS_LIST, query)
+	if err != nil {
+		return nil, []error{err}
+	}
+	if parser.Contains(respBody, "Recherche pseudo:") {
+		parser.UpdateState(&state, respBody)
+		return parser.ParsePlayerList(respBody)
+	} else {
+		return nil, []error{fmt.Errorf("ListPlayers(%d): the page does not seem right", startRank)}
+	}
+}
+
+// DisplayPlayer requests the specified player's detail page. Use this to fake a
+// visit on the user detail page prior to attacking.
+func DisplayPlayer(playerName string) (int, error) {
+	query := url.Values{}
+	query.Add("voirpseudo", playerName)
+	respBody, err := net.Get(URL_GAME, PAGE_USER_DETAILS, query)
+	if err != nil {
+		return -1, err
+	}
+	if parser.Contains(respBody, "Seigneur "+playerName) {
+		parser.UpdateState(&state, respBody)
+		return parser.ParsePlayerGold(respBody)
+	} else {
+		return -1, fmt.Errorf("DisplayPlayer(%s): the page does not seem right", playerName)
+	}
+}
+
+/**
+ * Attacks the specified user with one game turn.
+ *
+ * @param username
+ *            the name of the user to attack
+ * @return the gold stolen during the attack, or {@link #ERROR_REQUEST} if the request failed
+ */
+func Attack(username string) (int, error) {
+	form := url.Values{}
+	form.Add("a", "ok")
+	form.Add("PseudoDefenseur", username)
+	form.Add("NbToursToUse", "1")
+	respBody, err := net.Post(URL_GAME, PAGE_ATTACK, form)
+	if err != nil {
+		return 0, err
+	}
+	if parser.Contains(respBody, "remporte le combat!") || parser.Contains(respBody, "perd cette bataille!") {
+		parser.UpdateState(&state, respBody)
+		return parser.ParseGoldStolen(respBody)
+	} else if parser.Contains(respBody, "tempête magique s'abat") {
+		parser.UpdateState(&state, respBody)
+		return 0, fmt.Errorf("Attack(%s): cannot attack: a storm is raging here", username)
+	} else {
+		return 0, fmt.Errorf("Attack(%s): something went wrong, the page does not seem right", username)
+	}
+}
+
+// Gets the chest page from the server, and returns the amount of gold that could be stored in
+// the chest.
+func DisplayChestPage() (int, error) {
+	respBody, err := net.Get(URL_GAME, PAGE_CHEST, url.Values{})
+	if err != nil {
+		return 0, err
+	}
+	if parser.Contains(respBody, "ArgentAPlacer") {
+		parser.UpdateState(&state, respBody)
+		return state.Gold, nil
+	} else {
+		return 0, fmt.Errorf("DisplayChestPage(): the page does not seem right")
+	}
+}
+
+// Stores the specified amount of gold into the chest. The amount has to match the current gold
+// of the user, which should first be retrieved by calling DisplayChestPage().
+func StoreInChest(amount int) error {
+	form := url.Values{}
+	form.Add("ArgentAPlacer", strconv.Itoa(amount))
+	form.Add("x", randomCoord(10, 60))
+	form.Add("y", randomCoord(10, 60))
+	respBody, err := net.Post(URL_GAME, PAGE_CHEST, form)
+	if err != nil {
+		return err
+	}
+	parser.UpdateState(&state, respBody)
+	if state.Gold != 0 {
+		return fmt.Errorf("StoreInChest(%d): something went wrong, %d gold remaining", amount, state.Gold)
+	}
+	return nil
 }
 
 //    /**
-//     * Displays the specified player's detail page. Used to fake a visit on the user detail page
-//     * before an attack. The result does not matter.
-//     * 
-//     * @param playerName
-//     *            the name of the player to lookup
-//     * @return the specified player's current gold, or {@link #ERROR_REQUEST} if the request failed
-//     */
-//    func DisplayPlayer( playerName string) int {
-//         request HttpGet = Request.from(URL_GAME, PAGE_USER_DETAILS) //
-//                .addParameter("voirpseudo", playerName) //
-//                .get()
-//         response string = http.execute(request)
-//        if (response.contains("Seigneur " + playerName)) {
-//            Parser.updateState(state, response)
-//            return Parser.parsePlayerGold(response)
-//        } else {
-//            return ERROR_REQUEST
-//        }
-//    }
-//
-//    /**
-//     * Attacks the specified user with one game turn.
-//     * 
-//     * @param username
-//     *            the name of the user to attack
-//     * @return the gold stolen during the attack, or {@link #ERROR_REQUEST} if the request failed
-//     */
-//    func Attack( username string ) int {
-//         request HttpPost = Request.from(URL_GAME, PAGE_ATTACK) //
-//                .addParameter("a", "ok") //
-//                .addPostData("PseudoDefenseur", username) //
-//                .addPostData("NbToursToUse", "1") //
-//                .post()
-//        response string = http.execute(request)
-//        if (response.contains("remporte le combat!") || response.contains("perd cette bataille!")) {
-//            Parser.updateState(state, response)
-//            return Parser.parseGoldStolen(response)
-//        } else if (response.contains("tempête magique s'abat")) {
-//            Parser.updateState(state, response)
-//            return ERROR_STORM_ACTIVE
-//        } else {
-//            return ERROR_REQUEST
-//        }
-//    }
-//
-//    /**
-//     * Gets the chest page from the server, and returns the amount of money that could be stored in
-//     * the chest.
-//     * 
-//     * @return the amount of money that could be stored in the chest, which is the current amount of
-//     *         gold of the player, or {@link #ERROR_REQUEST} if the request failed
-//     */
-//    func DisplayChestPage() int {
-//        HttpGet request = Request.from(URL_GAME, PAGE_CHEST).get()
-//         response string = http.execute(request)
-//        if (response.contains("ArgentAPlacer")) {
-//            Parser.updateState(state, response)
-//            return state.gold
-//        } else {
-//            return ERROR_REQUEST
-//        }
-//    }
-//
-//    /**
-//     * Stores the specified amount of gold into the chest. The amount has to match the current gold
-//     * of the user, which should first be retrieved by calling {@link #displayChestPage()}.
-//     * 
-//     * @param amount
-//     *            the amount of gold to store into the chest
-//     * @return true if the request succeeded, false otherwise
-//     */
-//    func StoreInChest( amount int) bool {
-//        HttpPost request = Request.from(URL_GAME, PAGE_CHEST) //
-//                .addPostData("ArgentAPlacer", string.valueOf(amount)) //
-//                .addPostData("x", randomCoord(10, 60)) //
-//                .addPostData("y", randomCoord(10, 60)) //
-//                .post()
-//         response string = http.execute(request)
-//        Parser.updateState(state, response)
-//        return state.gold == 0
-//    }
-//
-//    /**
 //     * Displays the weapons page. Used to fake a visit on the weapons page before repairing or
 //     * buying weapons and equipment.
-//     * 
+//     *
 //     * @return the percentage of wornness of the weapons, or {@link #ERROR_REQUEST} if the request failed
 //     */
 //    func DisplayWeaponsPage() int {
@@ -218,7 +191,7 @@ func ListPlayers(startRank int) ([]model.Player, error) {
 //
 //    /**
 //     * Repairs weapons.
-//     * 
+//     *
 //     * @return true if the repair succeeded, false otherwise
 //     */
 //    func RepairWeapons() bool {
@@ -236,7 +209,7 @@ func ListPlayers(startRank int) ([]model.Player, error) {
 //
 //    /**
 //     * Displays the sorcery page. Used to fake a visit on the sorcery page before casting a spell.
-//     * 
+//     *
 //     * @return the available mana, or {@link #ERROR_REQUEST} if the request failed
 //     */
 //    func DisplaySorceryPage() int {
@@ -252,7 +225,7 @@ func ListPlayers(startRank int) ([]model.Player, error) {
 //    /**
 //     * Casts the dissipation spell to get rid of the protective aura. Useful before self-casting a
 //     * storm.
-//     * 
+//     *
 //     * @return true if the request succeeded, false otherwise
 //     */
 //    func DissipateProtectiveAura() bool {
@@ -267,7 +240,7 @@ func ListPlayers(startRank int) ([]model.Player, error) {
 //
 //    /**
 //     * Casts a magic storm on the specified player.
-//     * 
+//     *
 //     * @param playerName
 //     *            the amount of gold to store into the chest
 //     * @return true if the request succeeded, false otherwise

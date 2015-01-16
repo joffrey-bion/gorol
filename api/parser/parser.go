@@ -1,4 +1,4 @@
-package api
+package parser
 
 import (
 	"code.google.com/p/go-charset/charset"
@@ -14,6 +14,15 @@ import (
 	"strings"
 )
 
+var (
+	baseURL string
+)
+
+// SetBaseURL sets the base URL used to resolve relative links.
+func SetBaseURL(url string) {
+	baseURL = url
+}
+
 // assertIsTag panics if the node is not the specified tag
 func assertIsTag(node *gosoup.Node, expectedTag string) {
 	if !node.IsTag(expectedTag) {
@@ -22,19 +31,18 @@ func assertIsTag(node *gosoup.Node, expectedTag string) {
 }
 
 // String returns the body of the given HTTP response as a string.
-// After a call to this function, the response reader is closed and can't be used anymore.
+// After a call to this function, the response reader is closed and can't be used
+// anymore.
 func String(resp *http.Response) (string, error) {
 	defer resp.Body.Close()
 	// first parsing even in wrong charset, to get the encoding from the HTML
 	doc, err := gosoup.Parse(resp.Body)
 	if err != nil {
-		logger.Println(err)
 		return "", fmt.Errorf("String: error reading the response as HTML: %v", err)
 	}
 	// get the charset from the incorrect html (hopefully not that incorrect)
 	cset, err := gosoup.GetDocCharset(doc)
 	if err != nil {
-		logger.Println(err)
 		return "", fmt.Errorf("String: error getting the charset: %v", err)
 	}
 	// pipe to re-read the DOM tree
@@ -48,13 +56,11 @@ func String(resp *http.Response) (string, error) {
 	// translate the data from the pipe to UTF-8 using the proper encoding
 	reader, err := charset.NewReader(cset, preader)
 	if err != nil {
-		logger.Println(err)
 		return "", fmt.Errorf("String: error reading the response with the appropriate charset")
 	}
 	// read the UTF-8 data as a String
 	body, err := ioutil.ReadAll(reader)
 	if err != nil {
-		logger.Println(err)
 		return "", fmt.Errorf("String: error reading the response: %v", err)
 	}
 
@@ -99,7 +105,7 @@ func findNumValueInImgUrl(node *gosoup.Node, attrKey, attrValuePart string) int 
 	return 0
 }
 
-// Returns the list of players contained in the specified page.
+// ParsePlayerList returns the list of players contained in the specified page.
 func ParsePlayerList(playerListPageResponse string) ([]*model.Player, []error) {
 	var players []*model.Player
 	var errors []error
@@ -124,7 +130,7 @@ func ParsePlayerList(playerListPageResponse string) ([]*model.Player, []error) {
 	return players, errors
 }
 
-// Creates a new player from the cells in the specified {@code <tr>} element.
+// parsePlayer creates a new player from the cells in the specified {@code <tr>} element.
 func parsePlayer(playerRow *gosoup.Node) (*model.Player, error) {
 	assertIsTag(playerRow, "tr")
 	fields := playerRow.ChildrenByTag("td").All()
@@ -185,7 +191,7 @@ func getAsInt(n *gosoup.Node) (int, error) {
 	return value, nil
 }
 
-// Gets the amount of stolen golden from the attack report.
+// ParseGoldStolen gets the amount of stolen golden from the attack report.
 func ParseGoldStolen(attackReportResponse string) (int, error) {
 	doc, err := gosoup.Parse(strings.NewReader(attackReportResponse))
 	if err != nil {
@@ -240,7 +246,7 @@ func getGoldFromImgElement(goldImageElement *gosoup.Node) (int, error) {
 	if len(goldImgUrl) == 0 {
 		panic("emtpy gold image url")
 	}
-	img, err := ocr.GetImage(BASE_URL + goldImgUrl)
+	img, err := ocr.GetImage(baseURL + goldImgUrl)
 	if err != nil {
 		return -1, err
 	}
