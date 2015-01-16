@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -72,37 +73,55 @@ func Contains(resp string, s string) bool {
 }
 
 // Updates the specified account state based on the top elements of the specified page.
-func UpdateState(state *model.AccountState, resp string) error {
+func UpdateState(state *model.AccountState, resp string) []error {
 	doc, err := gosoup.Parse(strings.NewReader(resp))
+	errors := []error{}
 	if err != nil {
-		return err
+		return append(errors, err)
 	}
-	state.Gold = findNumValueInImgUrl(doc, "onmouseover", "A chaque tour de jeu")
-	state.ChestGold = findNumValueInImgUrl(doc, "onmouseover", "Votre coffre magique")
-	state.Mana = findNumValueInImgUrl(doc, "onmouseover", "Votre mana représente")
-	state.Turns = findNumValueInImgUrl(doc, "onmouseover", "Un nouveau tour de jeu")
-	state.Adventurins = findNumValueInImgUrl(doc, "href", "main/aventurines_detail")
-	return nil
+	state.Gold = getNumFromImg(doc, errors, "onMouseOver", "A chaque tour de jeu")
+	state.ChestGold = getNumFromImg(doc, errors, "onMouseOver", "Votre coffre magique")
+	state.Mana = getNumFromImg(doc, errors, "onMouseOver", "Votre mana représente")
+	state.Turns = getNumFromImg(doc, errors, "onMouseOver", "Un nouveau tour de jeu")
+	state.Adventurins = getNumFromImg(doc, errors, "href", "main/aventurines_detail")
+	return errors
 }
 
-func findNumValueInImgUrl(node *gosoup.Node, attrKey, attrValuePart string) int {
-	attrs := node.ChildrenByAttrValueContaining(attrKey, attrValuePart).First().Attrs
-	imgSrc := ""
-	for _, a := range attrs {
-		if a.Key == "src" {
-			imgSrc = a.Val
-		}
+func getNumFromImg(node *gosoup.Node, errors []error, attrKey, attrValuePart string) int {
+	val, err := findNumValueInImgUrl(node, attrKey, attrValuePart)
+	if err != nil {
+		errors = append(errors, err)
+	}
+	return val
+} 
+
+func findNumValueInImgUrl(node *gosoup.Node, attrKey, attrValuePart string) (int, error) {
+	anchor := node.DescendantsByAttrValueContaining(attrKey, attrValuePart).First()
+	if anchor == nil {
+		return 0, fmt.Errorf("no tag with attribute %q containing %q", attrKey, attrValuePart)
+	}
+	img := anchor.Children().First()
+	if img == nil {
+		return 0, fmt.Errorf("no <img> tag")
+	}
+	imgSrc := img.AttrOrDefault("src", "")
+	if imgSrc == "" {
+		return 0, fmt.Errorf("no link to get the numeric value from")
 	}
 	// get num param
-	num := strings.SplitN(imgSrc, "num=", 2)[1]
-	if num != "" {
-		num := strings.SplitN(num, "&", 2)[0]
-		val, err := strconv.Atoi(strings.Replace(num, ".", "", -1))
-		if err == nil {
-			return val
-		}
+	imgUrl, err := url.Parse(imgSrc)
+	if err != nil {
+		return 0, err
 	}
-	return 0
+	num := imgUrl.Query().Get("num")
+	if num == "" {
+		return 0, fmt.Errorf("no num value to read in the image link")
+	}
+	val, err := strconv.Atoi(strings.Replace(num, ".", "", -1))
+	if err != nil {
+		return 0, err
+	}
+	return val, nil
 }
 
 // ParsePlayerList returns the list of players contained in the specified page.

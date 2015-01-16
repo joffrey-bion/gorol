@@ -42,7 +42,6 @@ func pageUrl(base string, page string, query url.Values) string {
 
 func Get(base, page string, query url.Values) (string, error) {
 	url := pageUrl(base, page, query)
-	log.Df("url=%s", url)
 	request, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err

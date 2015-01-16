@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	BASE_URL  string = "http://www.riseoflords.com"
-	URL_INDEX string = BASE_URL + "/index.php"
-	URL_GAME  string = BASE_URL + "/jeu.php"
+	BASE_URL  string = "http://www.riseoflords.com/"
+	URL_INDEX string = BASE_URL + "index.php"
+	URL_GAME  string = BASE_URL + "jeu.php"
 
 	PAGE_LOGIN        string = "verifpass"
 	PAGE_LOGOUT       string = "logout"
@@ -60,7 +60,10 @@ func Login(username string, password string) error {
 	if parser.Contains(respBody, "Identification réussie!") {
 		return nil
 	}
-	return fmt.Errorf("something went wrong while logging in")
+	if parser.Contains(respBody, "Identification incorrecte") {
+		return fmt.Errorf("Login failed: wrong credentials for login %q", username)
+	}
+	return fmt.Errorf("Login failed: response: %v", respBody)
 }
 
 // Logout logs the current user out.

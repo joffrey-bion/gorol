@@ -29,7 +29,7 @@ func login(username, password string) error {
 	log.D("Logging in with username ", username, "...")
 	err := api.Login(username, password)
 	if err != nil {
-		log.E("Login failure: ", err)
+		log.Ef("Login failure: %v", err)
 		return err
 	}
 	log.I("Logged in with username: ", username)
