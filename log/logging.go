@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	logger *log.Logger = log.New(os.Stdout, "bot: ", log.Lshortfile)
+	logger *log.Logger = log.New(os.Stdout, "", 0)
 )
 
 const (
