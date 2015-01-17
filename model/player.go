@@ -76,5 +76,5 @@ type Player struct {
 }
 
 func (p Player) String() string {
-	return fmt.Sprintf("{rank=%d, name=%d, gold=%d, army=%d, align=%d}", p.Rank, p.Name, p.Gold, p.Army, p.Alignment)
+	return fmt.Sprintf("{rank=%d, name=%s, gold=%d, army=%d, align=%d}", p.Rank, p.Name, p.Gold, p.Army, p.Alignment)
 }
