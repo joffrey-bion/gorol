@@ -46,9 +46,8 @@ func randomCoord(min int, max int) string {
 	return strconv.Itoa(rand.Intn(max-min+1) + min)
 }
 
-// Login performs the login request with the specified credentials.
-// One needs to wait at least 5-6 seconds to fake real login delay after sucess.
-// Returns true for success, false for failure.
+// Login performs the login request with the specified credentials. One needs to
+// wait at least 5-6 seconds to fake real login delay after success.
 func Login(username string, password string) error {
 	form := url.Values{}
 	form.Add("LogPseudo", username)
@@ -57,26 +56,25 @@ func Login(username string, password string) error {
 	if err != nil {
 		return err
 	}
-	if parser.Contains(respBody, "Identification réussie!") {
-		return nil
-	}
 	if parser.Contains(respBody, "Identification incorrecte") {
 		return fmt.Errorf("Login failed: wrong credentials for login %q", username)
 	}
-	return fmt.Errorf("Login failed: response: %v", respBody)
+	if !parser.Contains(respBody, "Identification réussie!") {
+		return fmt.Errorf("Login failed: response: %v", respBody)
+	}
+	return nil
 }
 
 // Logout logs the current user out.
-// Returns true if the request succeeded, false otherwise
 func Logout() error {
 	respBody, err := net.Get(URL_INDEX, PAGE_LOGOUT, nil)
 	if err != nil {
 		return err
 	}
-	if parser.Contains(respBody, "Déjà inscrit? Connectez-vous") {
-		return nil
+	if !parser.Contains(respBody, "Déjà inscrit? Connectez-vous") {
+		return fmt.Errorf("something went wrong while logging out")
 	}
-	return fmt.Errorf("something went wrong while logging out")
+	return nil
 }
 
 // Returns a list of 99 users, starting at the specified rank.
@@ -91,125 +89,123 @@ func ListPlayers(startRank int) ([]*model.Player, []error) {
 	if err != nil {
 		return nil, []error{err}
 	}
-	if parser.Contains(respBody, "Recherche pseudo:") {
-		parser.UpdateState(&state, respBody)
-		return parser.ParsePlayerList(respBody)
-	} else {
+	if !parser.Contains(respBody, "Recherche pseudo:") {
 		return nil, []error{fmt.Errorf("ListPlayers(%d): the page does not seem right", startRank)}
 	}
+	players, errors := parser.ParsePlayerList(respBody)
+	updateErrors := parser.UpdateState(&state, respBody)
+	return players, append(errors, updateErrors...)
 }
 
 // DisplayPlayer requests the specified player's detail page. Use this to fake a
-// visit on the user detail page prior to attacking.
-func DisplayPlayer(playerName string) (int, error) {
+// visit on the user detail page prior to attacking. Returns the gold of the given
+// player.
+func DisplayPlayer(playerName string) (int, []error) {
 	query := url.Values{}
 	query.Add("voirpseudo", playerName)
 	respBody, err := net.Get(URL_GAME, PAGE_USER_DETAILS, query)
 	if err != nil {
-		return -1, err
+		return 0, []error{err}
 	}
-	if parser.Contains(respBody, "Seigneur "+playerName) {
-		parser.UpdateState(&state, respBody)
-		return parser.ParsePlayerGold(respBody)
-	} else {
-		return -1, fmt.Errorf("DisplayPlayer(%s): the page does not seem right", playerName)
+	if !parser.Contains(respBody, "Seigneur "+playerName) {
+		return 0, []error{fmt.Errorf("DisplayPlayer(%s): the page does not seem right", playerName)}
 	}
+	gold, err := parser.ParsePlayerGold(respBody)
+	updateErrors := parser.UpdateState(&state, respBody)
+	return gold, append([]error{err}, updateErrors...)
 }
 
-/**
- * Attacks the specified user with one game turn.
- *
- * @param username
- *            the name of the user to attack
- * @return the gold stolen during the attack, or {@link #ERROR_REQUEST} if the request failed
- */
-func Attack(username string) (int, error) {
+// Attacks the specified user with one game turn. Returns the gold stolen during the
+// attack.
+func Attack(username string) (int, []error) {
 	form := url.Values{}
 	form.Add("a", "ok")
 	form.Add("PseudoDefenseur", username)
 	form.Add("NbToursToUse", "1")
 	respBody, err := net.Post(URL_GAME, PAGE_ATTACK, form)
 	if err != nil {
-		return 0, err
+		return 0, []error{err}
 	}
-	if parser.Contains(respBody, "remporte le combat!") || parser.Contains(respBody, "perd cette bataille!") {
-		parser.UpdateState(&state, respBody)
-		return parser.ParseGoldStolen(respBody)
+	if parser.Contains(respBody, "remporte le combat!") {
+		gold, err := parser.ParseGoldStolen(respBody)
+		updateErrors := parser.UpdateState(&state, respBody)
+		return gold, append([]error{err}, updateErrors...)
+	} else if parser.Contains(respBody, "perd cette bataille!") {
+		errors := []error{fmt.Errorf("Attack(%s): defeat.", username)}
+		updateErrors := parser.UpdateState(&state, respBody)
+		return 0, append(errors, updateErrors...)
 	} else if parser.Contains(respBody, "tempête magique s'abat") {
-		parser.UpdateState(&state, respBody)
-		return 0, fmt.Errorf("Attack(%s): cannot attack: a storm is raging here", username)
+		errors := []error{fmt.Errorf("Attack(%s): cannot attack: a storm is raging here", username)}
+		updateErrors := parser.UpdateState(&state, respBody)
+		return 0, append(errors, updateErrors...)
 	} else {
-		return 0, fmt.Errorf("Attack(%s): something went wrong, the page does not seem right", username)
+		return 0, []error{fmt.Errorf("Attack(%s): something went wrong, the page does not seem right", username)}
 	}
 }
 
-// Gets the chest page from the server, and returns the amount of gold that could be stored in
+// Displays the chest page, and returns the amount of gold that could be stored in
 // the chest.
-func DisplayChestPage() (int, error) {
+func DisplayChestPage() (int, []error) {
 	respBody, err := net.Get(URL_GAME, PAGE_CHEST, url.Values{})
 	if err != nil {
-		return 0, err
+		return 0, []error{err}
 	}
-	if parser.Contains(respBody, "ArgentAPlacer") {
-		parser.UpdateState(&state, respBody)
-		return state.Gold, nil
-	} else {
-		return 0, fmt.Errorf("DisplayChestPage(): the page does not seem right")
+	if !parser.Contains(respBody, "ArgentAPlacer") {
+		return 0, []error{fmt.Errorf("DisplayChestPage(): the page does not seem right")}
 	}
+	updateErrors := parser.UpdateState(&state, respBody)
+	return state.Gold, updateErrors
 }
 
 // Stores the specified amount of gold into the chest. The amount has to match the current gold
 // of the user, which should first be retrieved by calling DisplayChestPage().
-func StoreInChest(amount int) error {
+func StoreInChest(amount int) []error {
 	form := url.Values{}
 	form.Add("ArgentAPlacer", strconv.Itoa(amount))
 	form.Add("x", randomCoord(10, 60))
 	form.Add("y", randomCoord(10, 60))
 	respBody, err := net.Post(URL_GAME, PAGE_CHEST, form)
 	if err != nil {
-		return err
+		return []error{err}
 	}
-	parser.UpdateState(&state, respBody)
 	if state.Gold != 0 {
-		return fmt.Errorf("StoreInChest(%d): something went wrong, %d gold remaining", amount, state.Gold)
+		return []error{fmt.Errorf("StoreInChest(%d): something went wrong, %d gold remaining", amount, state.Gold)}
 	}
-	return nil
+	return parser.UpdateState(&state, respBody)
 }
 
-//    /**
-//     * Displays the weapons page. Used to fake a visit on the weapons page before repairing or
-//     * buying weapons and equipment.
-//     *
-//     * @return the percentage of wornness of the weapons, or {@link #ERROR_REQUEST} if the request failed
-//     */
-//    func DisplayWeaponsPage() int {
-//        HttpGet request = Request.from(URL_GAME, PAGE_WEAPONS).get()
-//         response string = http.execute(request)
-//        if (response.contains("Faites votre choix")) {
-//            return Parser.parseWeaponsWornness(response)
-//        } else {
-//            return ERROR_REQUEST
-//        }
-//    }
-//
-//    /**
-//     * Repairs weapons.
-//     *
-//     * @return true if the repair succeeded, false otherwise
-//     */
-//    func RepairWeapons() bool {
-//        HttpGet request = Request.from(URL_GAME, PAGE_WEAPONS) //
-//                .addParameter("a", "repair") //
-//                .addParameter("onglet", "") //
-//                .get()
-//         response string = http.execute(request)
-//        if (response.contains("Faites votre choix")) {
-//            return Parser.parseWeaponsWornness(response) == 0
-//        } else {
-//            return false
-//        }
-//    }
-//
+// Displays the weapons page. Used to fake a visit on the weapons page before repairing or
+// buying weapons and equipment. Returns the percentage of wornness of the weapons.
+func DisplayWeaponsPage() (int, []error) {
+	respBody, err := net.Get(URL_GAME, PAGE_WEAPONS, nil)
+	if err != nil {
+		return 0, []error{err}
+	}
+	if !parser.Contains(respBody, "Faites votre choix") {
+		return 0, []error{fmt.Errorf("DisplayWeaponsPage(): the page does not seem right")}
+	}
+	wornness, err := parser.ParseWeaponsWornness(respBody)
+	if err != nil {
+		return wornness, []error{err}
+	}
+	return wornness, parser.UpdateState(&state, respBody)
+}
+
+// Repairs weapons.
+func RepairWeapons() []error {
+	query := url.Values{}
+	query.Add("a", "repair")
+	query.Add("onglet", "")
+	respBody, err := net.Post(URL_GAME, PAGE_WEAPONS, query)
+	if err != nil {
+		return []error{err}
+	}
+	if !parser.Contains(respBody, "Faites votre choix") {
+		return []error{fmt.Errorf("RepairWeapons(): the page does not seem right")}
+	}
+	return parser.UpdateState(&state, respBody)
+}
+
 //    /**
 //     * Displays the sorcery page. Used to fake a visit on the sorcery page before casting a spell.
 //     *
