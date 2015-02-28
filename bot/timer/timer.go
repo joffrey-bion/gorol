@@ -1,8 +1,9 @@
-package bot
+package timer
 
 import (
-	"time"
 	"math/rand"
+	"time"
+	"github.com/joffrey-bion/gorol/log"
 )
 
 const (
@@ -14,13 +15,14 @@ const (
 )
 
 var (
-	currentSpeed int 
+	currentSpeed int = SPEED_FAST
 )
 
-func sleep( millis int, scaleDuration bool) {
+func sleep(millis int, scaleDuration bool) {
 	if scaleDuration {
 		millis = millis * currentSpeed / SPEED_NORMAL
 	}
+	log.D("sleep %d millis", millis)
 	time.Sleep(time.Duration(millis) * time.Millisecond)
 }
 
