@@ -93,7 +93,7 @@ func getNumFromImg(node *gosoup.Node, errors []error, attrKey, attrValuePart str
 		errors = append(errors, err)
 	}
 	return val
-} 
+}
 
 func findNumValueInImgUrl(node *gosoup.Node, attrKey, attrValuePart string) (int, error) {
 	anchor := node.DescendantsByAttrValueContaining(attrKey, attrValuePart).First()

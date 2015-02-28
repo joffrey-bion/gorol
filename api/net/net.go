@@ -61,7 +61,7 @@ func Post(base, page string, form url.Values) (string, error) {
 
 func execute(request *http.Request) (string, error) {
 	request.Header.Set("User-Agent", fakeUserAgent)
-	log.Df("url=%s", request.URL)
+	log.V("url=%s", request.URL)
 	resp, err := client.Do(request)
 	if err != nil {
 		return "", err

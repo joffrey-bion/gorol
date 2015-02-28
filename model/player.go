@@ -15,7 +15,7 @@ const (
 )
 
 func GetArmy(shortName string) Army {
-	switch (shortName) {
+	switch shortName {
 	case "Chev.", "Guer.":
 		return WARRIORS
 	case "Sorc.":
@@ -44,7 +44,7 @@ const (
 )
 
 func GetAlignment(shortName string) Alignment {
-	switch (shortName) {
+	switch shortName {
 	case "Sai.":
 		return SAINT
 	case "Che.":
@@ -77,4 +77,21 @@ type Player struct {
 
 func (p Player) String() string {
 	return fmt.Sprintf("{rank=%d, name=%s, gold=%d, army=%d, align=%d}", p.Rank, p.Name, p.Gold, p.Army, p.Alignment)
+}
+
+type PlayerList []*Player
+
+func (l PlayerList) Len() int {
+	return len(l)
+}
+func (l PlayerList) Less(i, j int) bool {
+	return l[i].Gold < l[j].Gold
+}
+
+func (l PlayerList) Swap(i, j int) {
+	l[i], l[j] = l[j], l[i]
+}
+
+func (l PlayerList) Limit(count int) []*Player {
+	return l[:count]
 }
