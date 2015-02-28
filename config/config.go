@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/joffrey-bion/gorol/model"
 	"strings"
 )
 
@@ -30,12 +31,22 @@ type PlayerFilter struct {
 	GoldThreshold int
 }
 
-func (pf PlayerFilter) String() string {
-	return fmt.Sprintf("Player filter:\n   ranks: %d-%d\n   min gold: %d", pf.MinRank, pf.MaxRank, pf.GoldThreshold)
+func (f PlayerFilter) Apply(players []*model.Player) []*model.Player {
+	filtered := []*model.Player{}
+	for _, p := range players {
+		if p.Gold >= f.GoldThreshold && p.Rank <= f.MaxRank && p.Rank >= f.MinRank {
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered
+}
+
+func (f PlayerFilter) String() string {
+	return fmt.Sprintf("Player filter:\n   ranks: %d-%d\n   min gold: %d", f.MinRank, f.MaxRank, f.GoldThreshold)
 }
 
 type SessionParams struct {
-	NbOfAttacks        int
+	NbOfAttacks         int
 	HoursBetweenAttacks int64
 }
 
@@ -44,10 +55,10 @@ func (sp SessionParams) String() string {
 }
 
 type Config struct {
-	Account            Account
-	Filter             PlayerFilter
-	AttackParams       AttackParams
-	SessionParams      SessionParams
+	Account       Account
+	Filter        PlayerFilter
+	AttackParams  AttackParams
+	SessionParams SessionParams
 }
 
 func (c Config) String() string {
