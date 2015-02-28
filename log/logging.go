@@ -4,10 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
-)
-
-var (
-	logger *log.Logger = log.New(os.Stdout, "", 0)
+	"strings"
 )
 
 const (
@@ -19,51 +16,46 @@ const (
 )
 
 const (
-	LEVEL int = lvlVerbose
+	LEVEL  int    = lvlDebug
+	INDENT string = "   "
 )
 
-func printLog(level int, args ...interface{}) {
+var (
+	logger    *log.Logger = log.New(os.Stdout, "", 0)
+	indentLvl int         = 0
+)
+
+func printLog(level int, formatStr string, args ...interface{}) {
 	if level <= LEVEL {
-		logger.Println(args...)
+		ind := strings.Repeat(INDENT, indentLvl)
+		logger.Println(fmt.Sprintf(ind+formatStr, args...))
 	}
 }
 
-func E(args ...interface{}) {
-	printLog(lvlError, args...)
+func Indent() {
+	indentLvl++
 }
 
-func W(args ...interface{}) {
-	printLog(lvlWarning, args...)
+func Unindent(depth int) {
+	indentLvl -= depth
 }
 
-func I(args ...interface{}) {
-	printLog(lvlInfo, args...)
+func E(formatStr string, args ...interface{}) {
+	printLog(lvlError, formatStr, args...)
 }
 
-func D(args ...interface{}) {
-	printLog(lvlDebug, args...)
+func W(formatStr string, args ...interface{}) {
+	printLog(lvlWarning, formatStr, args...)
 }
 
-func V(args ...interface{}) {
-	printLog(lvlVerbose, args...)
+func I(formatStr string, args ...interface{}) {
+	printLog(lvlInfo, formatStr, args...)
 }
 
-func Ef(formatStr string, args ...interface{}) {
-	E(fmt.Sprintf(formatStr, args...))
+func D(formatStr string, args ...interface{}) {
+	printLog(lvlDebug, formatStr, args...)
 }
 
-func Wf(formatStr string, args ...interface{}) {
-	W(fmt.Sprintf(formatStr, args...))
-}
-
-func If(formatStr string, args ...interface{}) {
-	I(fmt.Sprintf(formatStr, args...))
-}
-
-func Df(formatStr string, args ...interface{}) {
-	D(fmt.Sprintf(formatStr, args...))
-}
-
-func Vf(formatStr string, args ...interface{}) {
-	V(fmt.Sprintf(formatStr, args...))
+func V(formatStr string, args ...interface{}) {
+	printLog(lvlVerbose, formatStr, args...)
 }
